@@ -1,44 +1,191 @@
 # notification-service
 
-[![CI](https://github.com/mh001-code/notification-service/actions/workflows/ci.yml/badge.svg)](https://github.com/mh001-code/notification-service/actions/workflows/ci.yml)
+<p align="center">
+  <img alt="Java" src="https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white">
+  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?logo=springboot&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white">
+  <img alt="RabbitMQ" src="https://img.shields.io/badge/RabbitMQ-3-FF6600?logo=rabbitmq&logoColor=white">
+  <img alt="Spring Retry" src="https://img.shields.io/badge/Spring_Retry-enabled-6DB33F?logo=spring&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+  <img alt="CI" src="https://github.com/mh001-code/notification-service/actions/workflows/ci.yml/badge.svg">
+</p>
 
 Notification service of the [Order Processing System](https://github.com/mh001-code) — a microservices portfolio project demonstrating event-driven architecture, retry patterns, and resilient notification delivery.
 
-## Overview
+---
 
-The `notification-service` consumes order events from RabbitMQ and records notifications for customers. It simulates email delivery with a configurable failure rate, applies automatic retry, and persists the full notification history with delivery status.
+## Table of Contents
+
+- [About](#about)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Business Rules](#business-rules)
+- [Running Locally](#running-locally)
+- [Endpoints](#endpoints)
+- [Technical Decisions](#technical-decisions)
+
+---
+
+## About
+
+The `notification-service` consumes order events from RabbitMQ and records notifications for customers. It simulates email delivery with a configurable failure rate, applies automatic retry via Spring Retry, and persists the full notification history with delivery status (`PENDING` → `SENT` / `FAILED`).
 
 ```
 order-service → order.created   → RabbitMQ → notification-service (ORDER_CONFIRMATION)
              → order.cancelled  →           → notification-service (ORDER_CANCELLATION)
 ```
 
+---
+
 ## Architecture
 
-Hexagonal (ports-and-adapters) architecture:
+The project follows **Hexagonal Architecture (Ports & Adapters)**, keeping the domain isolated from infrastructure concerns.
+
+```
+┌─────────────────────────────────────────────────────┐
+│                     API Layer                        │
+│           Controllers · DTOs · ExceptionHandler      │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────┐
+│                 Application Layer                    │
+│            Use Cases · Port Interfaces               │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────┐
+│                  Domain Layer                        │
+│  Notification · NotificationType · NotificationStatus│
+└─────────────────────────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────┐
+│              Infrastructure Layer                    │
+│   JPA Adapter · RabbitMQ Consumer · MockEmailSender  │
+└─────────────────────────────────────────────────────┘
+```
+
+```mermaid
+graph TD
+    RabbitMQ -->|order.created| OrderEventConsumer
+    RabbitMQ -->|order.cancelled| OrderEventConsumer
+    OrderEventConsumer --> ProcessOrderCreatedService
+    OrderEventConsumer --> ProcessOrderCancelledService
+    ProcessOrderCreatedService -->|port/out| NotificationJpaAdapter
+    ProcessOrderCreatedService -->|port/out| MockEmailSender
+    ProcessOrderCancelledService -->|port/out| NotificationJpaAdapter
+    ProcessOrderCancelledService -->|port/out| MockEmailSender
+    MockEmailSender -->|@Retryable 3x| EmailDelivery
+    NotificationJpaAdapter -->|JPA| PostgreSQL
+```
+
+**Base package:** `com.orderprocessing.notification.service`
 
 ```
 com.orderprocessing.notification.service
-├── domain/         # Notification, NotificationType, NotificationStatus, NotificationChannel
-├── application/    # Use cases (port/in), repository & sender interfaces (port/out)
-├── infrastructure/ # JPA adapter, RabbitMQ consumer, MockEmailSender, Spring config
-└── api/            # REST controllers, DTOs, global exception handler
+├── domain
+│   ├── model          # Notification, NotificationType, NotificationStatus, NotificationChannel
+│   └── exception      # NotificationNotFoundException
+├── application
+│   ├── usecase        # ProcessOrderCreatedService, ProcessOrderCancelledService
+│   └── port
+│       ├── in         # ProcessOrderCreatedUseCase, ProcessOrderCancelledUseCase
+│       └── out        # NotificationRepositoryPort, NotificationSenderPort
+├── infrastructure
+│   ├── persistence    # JPA repository + adapter
+│   ├── messaging      # OrderEventConsumer, MockEmailSender, event records
+│   └── config         # RabbitMQConfig
+└── api
+    ├── controller     # NotificationController, HealthController
+    ├── dto            # NotificationResponse record
+    └── handler        # GlobalExceptionHandler
 ```
+
+---
 
 ## Tech Stack
 
-| Technology | Role |
-|---|---|
-| Java 17 | Language |
-| Spring Boot 3.5 | Framework |
-| Spring AMQP | RabbitMQ consumer |
-| Spring Retry | Automatic retry on send failure |
-| PostgreSQL 16 | Notification history persistence |
-| Flyway | DB migrations |
-| JUnit 5 + Mockito | Unit tests |
-| Testcontainers | Integration tests |
-| Docker | Containerization |
-| GitHub Actions | CI/CD |
+| Technology | Version | Role |
+|---|---|---|
+| [Java](https://openjdk.org/) | 17 | Primary language |
+| [Spring Boot](https://spring.io/projects/spring-boot) | 3.5 | Web framework + DI |
+| [Spring AMQP](https://spring.io/projects/spring-amqp) | — | RabbitMQ consumer |
+| [Spring Retry](https://github.com/spring-projects/spring-retry) | — | Automatic retry on send failure |
+| [Spring Data JPA](https://spring.io/projects/spring-data-jpa) | — | ORM persistence |
+| [PostgreSQL](https://www.postgresql.org/) | 16 | Notification history |
+| [Flyway](https://flywaydb.org/) | — | Database migrations |
+| [Lombok](https://projectlombok.org/) | — | Boilerplate reduction |
+| [JUnit 5 + Mockito](https://junit.org/junit5/) | — | Unit testing |
+| [Testcontainers](https://testcontainers.com/) | — | Integration tests with real PostgreSQL + RabbitMQ |
+| [Docker](https://www.docker.com/) | — | Containerization (multi-stage build) |
+| [GitHub Actions](https://github.com/features/actions) | — | CI/CD pipeline |
+
+---
+
+## Business Rules
+
+- `order.created` triggers an `ORDER_CONFIRMATION` notification to the customer
+- `order.cancelled` triggers an `ORDER_CANCELLATION` notification
+- Each notification starts as `PENDING`, then becomes `SENT` or `FAILED`
+- The sender simulates a **10% failure rate** per attempt to reflect real-world delivery unreliability
+- Spring Retry retries up to **3 times** with a **1-second backoff** before giving up
+- If all retries fail, the notification is saved as `FAILED` — the RabbitMQ message is still acknowledged so the queue is never blocked
+- Full notification history is persisted and queryable by `customerId` or `orderId`
+
+### Notification lifecycle
+
+```
+Event received
+      │
+      ▼
+Notification saved (PENDING)
+      │
+      ▼
+notificationSender.send()
+      ├── success ──────────────► markSent() → save (SENT)
+      └── failure (retry x3) ──► markFailed() → save (FAILED) → ack message
+```
+
+---
+
+## Running Locally
+
+### Prerequisites
+
+- Java 17+
+- Docker and Docker Compose
+- Maven (or use the included `./mvnw` wrapper)
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/mh001-code/notification-service.git
+cd notification-service
+```
+
+### 2. Start PostgreSQL and RabbitMQ
+
+```bash
+docker-compose up -d
+```
+
+PostgreSQL on port `5437` · RabbitMQ on port `5672` · Management UI on `15672`
+
+### 3. Run the application
+
+```bash
+./mvnw spring-boot:run
+```
+
+The API will be available at `http://localhost:8082`.
+RabbitMQ Management UI: http://localhost:15672 (guest / guest)
+
+### 4. Run the tests
+
+```bash
+# All tests including integration (Docker required for Testcontainers)
+./mvnw test
+```
+
+---
 
 ## Endpoints
 
@@ -49,108 +196,34 @@ com.orderprocessing.notification.service
 | `GET` | `/notifications/{id}` | Get a specific notification | 200 / 404 |
 | `GET` | `/health` | Health check | 200 |
 
-## Event Consumption
+### HTTP Status Codes
 
-| Event | Routing Key | Notification Type |
-|---|---|---|
-| `OrderCreatedEvent` | `order.created` | `ORDER_CONFIRMATION` |
-| `OrderCancelledEvent` | `order.cancelled` | `ORDER_CANCELLATION` |
-
-### Notification lifecycle
-
-```
-Event received → Notification saved (PENDING) → sender.send() → SENT
-                                                              ↘ FAILED (on exhausted retries)
-```
-
-Failed messages (unexpected errors) are routed to Dead Letter Queues for analysis.
-
-## Retry Pattern
-
-`MockEmailSender` simulates real-world delivery with a **10% failure rate per attempt**:
-
-- Spring Retry intercepts failures and retries up to **3 times** with a **1-second backoff**
-- If all 3 attempts fail, `@Recover` logs the exhaustion and re-throws
-- The use case catches the exception, marks the notification as `FAILED`, and saves — the RabbitMQ message is **acknowledged regardless**, so the queue is never blocked by a persistently failing recipient
-
-**Why FAILED doesn't re-throw to the consumer:** a bad recipient address should not cause infinite redelivery. The notification is saved for audit; ops can inspect `FAILED` records and replay if needed.
-
-## Running Locally
-
-**Prerequisites:** Java 17, Maven, Docker
-
-```bash
-# Start PostgreSQL (port 5437) and RabbitMQ
-docker-compose up -d
-
-# Run the service
-./mvnw spring-boot:run
-```
-
-RabbitMQ Management UI: http://localhost:15672 (guest / guest)
-
-## Running Tests
-
-```bash
-# Unit tests only (no Docker required)
-./mvnw test -Dtest="ProcessOrderCreatedServiceTest,ProcessOrderCancelledServiceTest"
-
-# All tests including integration (Docker required)
-./mvnw test
-```
-
-**Test coverage:**
-- `ProcessOrderCreatedServiceTest` — 2 unit tests: SENT on success, FAILED on sender exception
-- `ProcessOrderCancelledServiceTest` — 2 unit tests: SENT on success, FAILED on sender exception
-- `NotificationControllerIntegrationTest` — 4 integration tests: query by customerId, orderId, by ID, 404
-- `OrderEventConsumerIntegrationTest` — 3 integration tests: confirmation saved SENT, confirmation saved FAILED, cancellation saved SENT
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5437/notifications` | DB connection |
-| `SPRING_DATASOURCE_USERNAME` | `notifications_user` | DB user |
-| `SPRING_DATASOURCE_PASSWORD` | `notifications_pass` | DB password |
-| `SPRING_RABBITMQ_HOST` | `localhost` | RabbitMQ host |
-| `SPRING_RABBITMQ_PORT` | `5672` | RabbitMQ port |
-| `SPRING_RABBITMQ_USERNAME` | `guest` | RabbitMQ user |
-| `SPRING_RABBITMQ_PASSWORD` | `guest` | RabbitMQ password |
-| `PORT` | `8082` | Server port |
-
-## Docker
-
-```bash
-# Build the image
-docker build -t notification-service .
-
-# Run (requires PostgreSQL and RabbitMQ reachable via env vars)
-docker run -p 8082:8082 \
-  -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5437/notifications \
-  -e SPRING_DATASOURCE_USERNAME=notifications_user \
-  -e SPRING_DATASOURCE_PASSWORD=notifications_pass \
-  -e SPRING_RABBITMQ_HOST=host.docker.internal \
-  notification-service
-```
-
-## Deploy on Railway
-
-1. Inside the existing Order Processing System project on [Railway](https://railway.app), add a **New Service → GitHub Repo** pointing to this repository
-2. Add a new **PostgreSQL** plugin for the notifications database
-3. Point to the **same RabbitMQ** instance used by `order-service` and `inventory-service`
-4. Set the following environment variables:
-
-| Variable | Source |
+| Status | Situation |
 |---|---|
-| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}` |
-| `SPRING_DATASOURCE_USERNAME` | `${{Postgres.PGUSER}}` |
-| `SPRING_DATASOURCE_PASSWORD` | `${{Postgres.PGPASSWORD}}` |
-| `SPRING_RABBITMQ_HOST` | `${{rabbitmq.RAILWAY_PRIVATE_DOMAIN}}` |
-| `SPRING_RABBITMQ_PORT` | `5672` |
-| `SPRING_RABBITMQ_USERNAME` | `guest` |
-| `SPRING_RABBITMQ_PASSWORD` | `guest` |
+| `200 OK` | Query successful |
+| `404 Not Found` | Notification not found |
 
-## Related Services
+---
 
-- [order-service](https://github.com/mh001-code/order-service) — entry point, publishes `order.created` / `order.cancelled`
-- [inventory-service](https://github.com/mh001-code/inventory-service) — consumes the same events, manages stock
+## Technical Decisions
+
+**`@Retryable` over manual retry loops**
+Spring Retry intercepts the `send()` call via AOP and retries transparently. The use case has no retry logic — it only catches the final exception after all attempts are exhausted. This keeps the business logic clean and makes the retry policy easy to tune via annotations.
+
+**`FAILED` status instead of re-throwing to the consumer**
+A delivery failure to a specific customer should not cause infinite redelivery of the RabbitMQ message. The notification is saved as `FAILED` for audit and potential replay — the message is acknowledged and the consumer stays healthy. Separating delivery concerns from queue concerns is a key principle of resilient event-driven systems.
+
+**`@MockBean` in integration tests**
+The `MockEmailSender` has a random 10% failure rate which would make tests non-deterministic. Integration tests replace it with a `@MockBean` that succeeds or fails on demand, giving full control over SENT vs FAILED assertions without retry delays.
+
+**Hexagonal Architecture**
+`ProcessOrderCreatedService` depends on `NotificationSenderPort` — a pure interface. Swapping the mock email sender for a real SMTP adapter or an AWS SES client requires only a new infrastructure class, with zero changes to the domain or use case layer.
+
+**Testcontainers singleton pattern**
+PostgreSQL and RabbitMQ containers start once for the entire test suite and are shared across all test classes via a static initializer block. This avoids the Spring context caching issue that would occur if containers were recreated per class.
+
+---
+
+<p align="center">
+  Built by <a href="mailto:marcioincode@gmail.com">Márcio Henrique</a>
+</p>
