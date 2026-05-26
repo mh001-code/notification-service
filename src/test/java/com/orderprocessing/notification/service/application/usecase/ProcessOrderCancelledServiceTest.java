@@ -5,10 +5,12 @@ import com.orderprocessing.notification.service.application.port.out.Notificatio
 import com.orderprocessing.notification.service.domain.model.Notification;
 import com.orderprocessing.notification.service.domain.model.NotificationStatus;
 import com.orderprocessing.notification.service.domain.model.NotificationType;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -27,12 +29,18 @@ class ProcessOrderCancelledServiceTest {
     @Mock
     private NotificationSenderPort notificationSender;
 
-    @InjectMocks
+    private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
+
     private ProcessOrderCancelledService service;
 
     private final UUID orderId = UUID.randomUUID();
     private final UUID customerId = UUID.randomUUID();
     private final String reason = "customer request";
+
+    @BeforeEach
+    void setUp() {
+        service = new ProcessOrderCancelledService(notificationRepository, notificationSender, meterRegistry);
+    }
 
     @Test
     void execute_shouldMarkNotificationAsSent_whenSenderSucceeds() {
