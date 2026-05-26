@@ -7,6 +7,9 @@
   <img alt="RabbitMQ" src="https://img.shields.io/badge/RabbitMQ-3-FF6600?logo=rabbitmq&logoColor=white">
   <img alt="Spring Retry" src="https://img.shields.io/badge/Spring_Retry-enabled-6DB33F?logo=spring&logoColor=white">
   <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+  <img alt="Swagger" src="https://img.shields.io/badge/Swagger-UI-85EA2D?logo=swagger&logoColor=black">
+  <img alt="Prometheus" src="https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white">
+  <img alt="Zipkin" src="https://img.shields.io/badge/Zipkin-tracing-FE7139">
   <img alt="CI" src="https://github.com/mh001-code/notification-service/actions/workflows/ci.yml/badge.svg">
 </p>
 
@@ -115,6 +118,10 @@ com.orderprocessing.notification.service
 | [Lombok](https://projectlombok.org/) | — | Boilerplate reduction |
 | [JUnit 5 + Mockito](https://junit.org/junit5/) | — | Unit testing |
 | [Testcontainers](https://testcontainers.com/) | — | Integration tests with real PostgreSQL + RabbitMQ |
+| [Spring Boot Actuator](https://docs.spring.io/spring-boot/docs/current/reference/html/actuator.html) | — | Health checks + metrics endpoints |
+| [Micrometer + Prometheus](https://micrometer.io/) | — | Métricas de notificações enviadas/falhas |
+| [Micrometer Tracing + Zipkin](https://micrometer.io/docs/tracing) | — | Distributed tracing |
+| [springdoc-openapi](https://springdoc.org/) | 2.8 | Swagger UI em `/swagger-ui.html` |
 | [Docker](https://www.docker.com/) | — | Containerization (multi-stage build) |
 | [GitHub Actions](https://github.com/features/actions) | — | CI/CD pipeline |
 
@@ -202,6 +209,21 @@ RabbitMQ Management UI: http://localhost:15672 (guest / guest)
 |---|---|
 | `200 OK` | Query successful |
 | `404 Not Found` | Notification not found |
+
+---
+
+## Observability
+
+| Endpoint | Descrição |
+|---|---|
+| `GET /actuator/health` | Status da aplicação |
+| `GET /actuator/prometheus` | Métricas em formato Prometheus |
+| `GET /swagger-ui.html` | Documentação interativa da API |
+
+**Métricas de negócio:**
+- `notifications_sent_total{type="ORDER_CONFIRMATION|ORDER_CANCELLATION", status="success|failed"}` — notificações enviadas e falhas por tipo
+
+**Distributed tracing:** o `traceId` iniciado no `order-service` é propagado via RabbitMQ headers e aparece automaticamente em todos os logs desta aplicação.
 
 ---
 
